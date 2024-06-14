@@ -1,7 +1,15 @@
 from openai import OpenAI
 import os
-from dotenv import load_dotenv, dotenv_values 
+from dotenv import load_dotenv
 import re
+import json
+import base64
+import requests
+from io import BytesIO
+from PIL import Image  
+import moviepy
+
+
 
 
 
@@ -98,6 +106,69 @@ def parse_gpt_response(response):
 
     return story
 
+def generate_image(prompt, num):
+    n = 1
+    size = "1024x1024"
+    images_response = openai.images.generate(
+        prompt=prompt,
+        n=n,
+        size=size,
+        response_format="b64_json"
+    )
+
+    image_url_list = []
+    image_data_list = []
+    img_filename = "sp"
+    for image in images_response.data:
+        image_url_list.append(image.model_dump()["url"])
+        image_data_list.append(image.model_dump()["b64_json"])
+
+    # Initialize an empty list to store the Image objects
+    image_objects = []
+
+    # Check whether lists contain urls that must be downloaded or b64_json images
+    if image_url_list and all(image_url_list):
+        # Download images from the urls
+        for i, url in enumerate(image_url_list):
+            while True:
+                try:
+                    print(f"getting URL: {url}")
+                    response = requests.get(url)
+                    response.raise_for_status()  # Raises stored HTTPError, if one occurred.
+                except requests.HTTPError as e:
+                    print(f"Failed to download image from {url}. Error: {e.response.status_code}")
+                    retry = input("Retry? (y/n): ")  # ask script user if image url is bad
+                    if retry.lower() in ["n", "no"]:  # could wait a bit if not ready
+                        raise
+                    else:
+                        continue
+                break
+            image_objects.append(Image.open(BytesIO(response.content)))  # Append the Image object to the list
+            image_objects[i].save(f"story_pics/sp_{num}.png")
+            print(f"{img_filename}_{i}.png was saved")
+    elif image_data_list and all(image_data_list):  # if there is b64 data
+        # Convert "b64_json" data to png file
+        for i, data in enumerate(image_data_list):
+            image_objects.append(Image.open(BytesIO(base64.b64decode(data))))  # Append the Image object to the list
+            image_objects[i].save(f"story_pics/sp_{num}.png")
+            print(f"story_pics/sp_{num}.png was saved")
+    else:
+        print("No image data was obtained. Maybe bad code?")
+
+def generate_audio(event):
+    complete_prompt = (event.text[0]+ " Will you A: " + event.option_1_text[0] + ", or B: " + event.option_2_text[0] + ". Swipe left and see where your decision leads.")
+    print("audio script: " + complete_prompt)
+    
+    audio = openai.audio.speech.create(
+        model="tts-1",
+        voice="fable",
+        input=complete_prompt
+    )
+
+    audio.write_to_file(f"audio_files/af_{event.num[0]}.mp3")
+
+def generate_video(story):
+
 
 # MAIN
 if __name__ == "__main__":
@@ -114,4 +185,22 @@ if __name__ == "__main__":
     
 
     story = parse_gpt_response(temp_response)
-    print(story.events[0].text)
+    print(story.events[2].text[0])
+
+    # GENERATE IMAGES FROM STORY TEXTS
+    # for event in story:
+    #     pic = generate_image(event.text)
+
+    #     for i, image in enumerate(pic):
+    #         with open(f'story_pics/story_pic_{i}.png', 'wb') as file:
+    #             file.write(image['image'])
+
+    #image = generate_image(story.events[2].text[0], num=story.events[2].num[0])
+
+    
+    # GENERATE AUDIO FROM TEXT
+    # generate_audio(story.events[2])
+
+    # PUT IT ALL TOGETHER INTO ONE VIDEO
+    generate_video(story)
+
