@@ -7,10 +7,9 @@ import base64
 import requests
 from io import BytesIO
 from PIL import Image  
-import moviepy
-
-
-
+import subprocess
+from mutagen.mp3 import MP3
+from moviepy.editor import *
 
 
 temp_response = """
@@ -50,7 +49,8 @@ openai = OpenAI(
     api_key = os.environ.get("OPENAI_API_KEY")
 )
 
-
+# give chat gpt a promt and get a response back
+# used to prompt for story and recieves the actual story beats
 def ask_chat_gpt(querry: str):
     message = {
         "role": "user",
@@ -66,19 +66,22 @@ def ask_chat_gpt(querry: str):
 
 # WRITTEN STORY FUNCTIONS
 
+# one page of the choose your own adventure story
 class StoryEvent:
     def __init__(self, num, text, option_1, option_1_text, option_2, option_2_text):
-        self.num = num,
-        self.text = text, 
-        self.option_1 = option_1,
-        self.option_2 = option_2,
-        self.option_1_text = option_1_text,
-        self.option_2_text = option_2_text,
+        self.num = num
+        self.text = text 
+        self.option_1 = option_1
+        self.option_2 = option_2
+        self.option_1_text = option_1_text
+        self.option_2_text = option_2_text
 
+# the entre story comprised of all the story events
 class Story:
     def __init__(self, story_events):
         self.events = story_events
 
+# parse the actual gpt response into story events and create the overall story
 def parse_gpt_response(response):
     pattern = r'(\d+)\.\s*\["(\d+)",\s*"([^"]+)",\s*"(\d+)",\s*"([^"]+)",\s*"(\d+)",\s*"([^"]+)"\]'
     
@@ -106,6 +109,7 @@ def parse_gpt_response(response):
 
     return story
 
+# prompt gpt with the text of the story event to recieve the image for the video
 def generate_image(prompt, num):
     n = 1
     size = "1024x1024"
@@ -155,19 +159,112 @@ def generate_image(prompt, num):
     else:
         print("No image data was obtained. Maybe bad code?")
 
+# generate the audio file from the text and options from the story event
 def generate_audio(event):
-    complete_prompt = (event.text[0]+ " Will you A: " + event.option_1_text[0] + ", or B: " + event.option_2_text[0] + ". Swipe left and see where your decision leads.")
-    print("audio script: " + complete_prompt)
+    complete = event.text + " Will you A:" + event.option_1_text + ". Or B: " + event.option_2_text + ". Swipe left and see where your decision leads."
+    initial = event.text
+    option_a = "Will you A: " + event.option_1_text
+    option_b = "Or B, " + event.option_2_text
+    ender = "Swipe left and see where your decision leads."
     
     audio = openai.audio.speech.create(
         model="tts-1",
         voice="fable",
-        input=complete_prompt
+        input=initial
     )
+    audio.write_to_file(f"audio_files/af_initial_{event.num}.mp3")
 
-    audio.write_to_file(f"audio_files/af_{event.num[0]}.mp3")
+    audio = openai.audio.speech.create(
+        model="tts-1",
+        voice="fable",
+        input=option_a
+    )
+    audio.write_to_file(f"audio_files/af_option_a_{event.num}.mp3")
 
-def generate_video(story):
+    audio = openai.audio.speech.create(
+        model="tts-1",
+        voice="fable",
+        input=option_b
+    )
+    audio.write_to_file(f"audio_files/af_option_b_{event.num}.mp3")
+
+    audio = openai.audio.speech.create(
+        model="tts-1",
+        voice="fable",
+        input=ender
+    )
+    audio.write_to_file(f"audio_files/af_ender_{event.num}.mp3")
+
+# generate the subtitles and video number in the top left
+def generate_subtitles(story):
+    subtitle_lines = [
+        ('00:00:00,000', '00:00:04,000', 'This is the first line of the speech.'),
+        ('00:00:04,000', '00:00:08,000', 'This is the second line of the speech.')
+    ]
+
+    output_path = f"subtitles/st_{story.events[2].num}.srt"
+    with open(output_path, 'w') as f:
+        for index, (start_time, end_time, text) in enumerate(subtitle_lines, start=1):
+            f.write(f"{index}\n")
+            f.write(f"{start_time} --> {end_time}\n")
+            f.write(f"{text}\n\n")
+
+# generate the video using the image, audio, and subtitle files
+def generate_video(event):
+    e = event
+    n = e.num
+
+
+    image_path = f"story_pics/sp_{n}.png"
+    image = Image.open(image_path)
+
+    audio_files = [f"audio_files/af_initial_{n}.mp3", f"audio_files/af_option_a_{n}.mp3", f"audio_files/af_option_b_{n}.mp3", f"audio_files/af_ender_{n}.mp3"]
+    subtitles = [e.text, 
+                 f"{e.option_1_text} (go to {e.option_1})", 
+                 f"{e.option_1_text} (go to {e.option_1}), {e.option_2_text} (go to {e.option_2})", 
+                 f"{e.option_1_text} (go to {e.option_1}), {e.option_2_text} (go to {e.option_2})" 
+                ]
+
+    # Create a video from the image
+    image_clip = ImageClip(image_path)
+
+    # Calculate the total duration of the audio files combined
+    total_duration = sum(AudioFileClip(audio).duration for audio in audio_files)
+
+    # Set the duration of the image clip to match the total duration of the audio
+    image_clip = image_clip.set_duration(total_duration)
+
+    # Concatenate the audio files
+    audio_clips = [AudioFileClip(audio) for audio in audio_files]
+    concatenated_audio = concatenate_audioclips(audio_clips)
+
+    # Set the audio of the image clip to the concatenated audio
+    video_clip = image_clip.set_audio(concatenated_audio)
+
+    # Generate subtitles and add them to the video
+    subtitle_clips = []
+    current_time = 0
+
+    for i, (audio, subtitle) in enumerate(zip(audio_clips, subtitles)):
+        duration = audio.duration
+        subtitle_clip = (TextClip(
+            subtitle, 
+            fontsize=32, 
+            font='Verdana-Bold',
+            color='coral', 
+            bg_color='transparent', 
+            method='caption'
+        ).set_position(('bottom')).set_start(current_time).set_duration(duration))
+        subtitle_clips.append(subtitle_clip)
+        current_time += duration
+
+    # Combine the video and subtitle clips
+    final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
+
+    # Save the final video
+    output_path = f'story_vids/s{n}.mp4'
+    final_clip.write_videofile(output_path, fps=24, codec='libx264')
+
 
 
 # MAIN
@@ -185,7 +282,7 @@ if __name__ == "__main__":
     
 
     story = parse_gpt_response(temp_response)
-    print(story.events[2].text[0])
+    print(story.events[2].text)
 
     # GENERATE IMAGES FROM STORY TEXTS
     # for event in story:
@@ -199,8 +296,10 @@ if __name__ == "__main__":
 
     
     # GENERATE AUDIO FROM TEXT
-    # generate_audio(story.events[2])
+    #generate_audio(story.events[2])
 
     # PUT IT ALL TOGETHER INTO ONE VIDEO
-    generate_video(story)
+    generate_video(story.events[2])
 
+    # print(TextClip.list('font'))
+    # print(TextClip.list('color'))
