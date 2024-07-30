@@ -214,15 +214,14 @@ def generate_video(event):
     e = event
     n = e.num
 
-
     image_path = f"story_pics/sp_{n}.png"
     image = Image.open(image_path)
 
     audio_files = [f"audio_files/af_initial_{n}.mp3", f"audio_files/af_option_a_{n}.mp3", f"audio_files/af_option_b_{n}.mp3", f"audio_files/af_ender_{n}.mp3"]
     subtitles = [e.text, 
                  f"{e.option_1_text} (go to {e.option_1})", 
-                 f"{e.option_1_text} (go to {e.option_1}), {e.option_2_text} (go to {e.option_2})", 
-                 f"{e.option_1_text} (go to {e.option_1}), {e.option_2_text} (go to {e.option_2})" 
+                 f"{e.option_1_text} (go to {e.option_1}), \n{e.option_2_text} (go to {e.option_2})", 
+                 f"{e.option_1_text} (go to {e.option_1}), \n{e.option_2_text} (go to {e.option_2})" 
                 ]
 
     # Create a video from the image
@@ -230,6 +229,14 @@ def generate_video(event):
 
     # Calculate the total duration of the audio files combined
     total_duration = sum(AudioFileClip(audio).duration for audio in audio_files)
+
+    video_height = 1920
+    video_width = int(video_height * 9 / 16)
+    image = image.resize((video_width, video_height), Image.LANCZOS)
+    image.save('resized_image.png')
+    image_path = 'resized_image.png'
+    image_clip = ImageClip(image_path)
+
 
     # Set the duration of the image clip to match the total duration of the audio
     image_clip = image_clip.set_duration(total_duration)
@@ -241,6 +248,8 @@ def generate_video(event):
     # Set the audio of the image clip to the concatenated audio
     video_clip = image_clip.set_audio(concatenated_audio)
 
+    video_width = video_clip.w
+
     # Generate subtitles and add them to the video
     subtitle_clips = []
     current_time = 0
@@ -249,17 +258,30 @@ def generate_video(event):
         duration = audio.duration
         subtitle_clip = (TextClip(
             subtitle, 
-            fontsize=32, 
+            fontsize=48, 
             font='Verdana-Bold',
             color='coral', 
             bg_color='transparent', 
-            method='caption'
+            method='caption',
+            align='south',
+            size=(video_width, None)
         ).set_position(('bottom')).set_start(current_time).set_duration(duration))
         subtitle_clips.append(subtitle_clip)
         current_time += duration
 
+    top_left_text_clip = (TextClip(
+        f"{n}", 
+        fontsize=78, 
+        font='Verdana-Bold',
+        color='coral', 
+        bg_color='transparent', 
+        method='caption',
+    ).set_position(('left', 'top'))
+    .set_duration(total_duration))
+
+
     # Combine the video and subtitle clips
-    final_clip = CompositeVideoClip([video_clip] + subtitle_clips)
+    final_clip = CompositeVideoClip([video_clip, top_left_text_clip] + subtitle_clips)
 
     # Save the final video
     output_path = f'story_vids/s{n}.mp4'
