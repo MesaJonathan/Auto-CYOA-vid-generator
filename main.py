@@ -195,20 +195,6 @@ def generate_audio(event):
     )
     audio.write_to_file(f"audio_files/af_ender_{event.num}.mp3")
 
-# generate the subtitles and video number in the top left
-def generate_subtitles(story):
-    subtitle_lines = [
-        ('00:00:00,000', '00:00:04,000', 'This is the first line of the speech.'),
-        ('00:00:04,000', '00:00:08,000', 'This is the second line of the speech.')
-    ]
-
-    output_path = f"subtitles/st_{story.events[2].num}.srt"
-    with open(output_path, 'w') as f:
-        for index, (start_time, end_time, text) in enumerate(subtitle_lines, start=1):
-            f.write(f"{index}\n")
-            f.write(f"{start_time} --> {end_time}\n")
-            f.write(f"{text}\n\n")
-
 # generate the video using the image, audio, and subtitle files
 def generate_video(event):
     e = event
@@ -261,9 +247,9 @@ def generate_video(event):
             fontsize=48, 
             font='Verdana-Bold',
             color='coral', 
-            bg_color='transparent', 
             method='caption',
             align='south',
+            bg_color='black',
             size=(video_width, None)
         ).set_position(('bottom')).set_start(current_time).set_duration(duration))
         subtitle_clips.append(subtitle_clip)
@@ -274,7 +260,7 @@ def generate_video(event):
         fontsize=78, 
         font='Verdana-Bold',
         color='coral', 
-        bg_color='transparent', 
+        bg_color='black', 
         method='caption',
     ).set_position(('left', 'top'))
     .set_duration(total_duration))
@@ -304,15 +290,15 @@ if __name__ == "__main__":
     
 
     story = parse_gpt_response(temp_response)
-    print(story.events[2].text)
+    # print(story.events[2].text)
 
     # GENERATE IMAGES FROM STORY TEXTS
-    # for event in story:
-    #     pic = generate_image(event.text)
+   
 
-    #     for i, image in enumerate(pic):
-    #         with open(f'story_pics/story_pic_{i}.png', 'wb') as file:
-    #             file.write(image['image'])
+
+        # for i, image in enumerate(pic):
+        #     with open(f'story_pics/story_pic_{i}.png', 'wb') as file:
+        #         file.write(image['image'])
 
     #image = generate_image(story.events[2].text[0], num=story.events[2].num[0])
 
@@ -321,7 +307,14 @@ if __name__ == "__main__":
     #generate_audio(story.events[2])
 
     # PUT IT ALL TOGETHER INTO ONE VIDEO
-    generate_video(story.events[2])
+    # generate_video(story.events[2])
 
     # print(TextClip.list('font'))
     # print(TextClip.list('color'))
+
+    for event in story.events:
+        generate_image(event.text, event.num)
+        generate_audio(event)
+        generate_video(event)
+
+    print("DONE")
